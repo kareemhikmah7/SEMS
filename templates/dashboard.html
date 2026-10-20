@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>Dashboard | UNILAG Energy Monitor</title>
+
+  <link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='style.css') }}"
+  >
+</head>
+
+<body>
+  <main class="workspace">
+
+    <header class="workspace-header">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">ϟ</span>
+        <span>UNILAG <strong>ENERGY</strong></span>
+      </div>
+
+      <form method="POST" action="{{ url_for('logout') }}">
+        <input
+          type="hidden"
+          name="csrf_token"
+          value="{{ csrf_token() }}"
+        >
+
+        <button type="submit" class="logout-button">
+          Log out
+        </button>
+      </form>
+    </header>
+
+    <section class="workspace-content">
+
+      <nav class="dashboard-nav" aria-label="Dashboard navigation">
+  <a href="#overview">Overview</a>
+  <a href="#consumption-trend">Trends</a>
+  <a href="#consumption-alerts">Alerts</a>
+  <a href="#reading-history">Records</a>
+</nav>
+
+      <div class="dashboard-actions">
+  <a
+    class="report-link"
+    href="{{ url_for('monthly_report') }}"
+  >
+    View monthly reports
+  </a>
+</div>
+
+      {% if account['role'] == 'admin' %}
+        <span class="badge">ADMINISTRATOR WORKSPACE</span>
+        <h1>Central energy dashboard</h1>
+
+        <p class="page-description">
+          Monitor submitted consumption across all faculties.
+        </p>
+      {% else %}
+        <span class="badge">FACULTY WORKSPACE</span>
+        <h1>{{ account['name'] }}</h1>
+
+        <p class="page-description">
+          Submit daily consumption and view your faculty's records.
+        </p>
+      {% endif %}
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <p class="notice notice-{{ category }}" role="status">
+            {{ message }}
+          </p>
+        {% endfor %}
+      {% endwith %}
+
+      <div class="summary-grid" id="overview">
+        <article class="summary-card">
+          <p>Today's reported consumption</p>
+
+          <h2>
+            {% if reported_today > 0 %}
+              {{ "%.2f"|format(today_total) }} <span>kWh</span>
+            {% else %}
+              —
+            {% endif %}
+          </h2>
+
+          <small>{{ today }}</small>
+        </article>
+
+        <article class="summary-card">
+          <p>Today's submissions</p>
+
+          <h2>{{ reported_today }} / {{ expected_today }}</h2>
+
+          <small>
+            {% if reported_today < expected_today %}
+              Incomplete total — readings are missing
+            {% else %}
+              All expected readings received
+            {% endif %}
+          </small>
+        </article>
+
+        <article class="summary-card">
+          <p>Saved readings</p>
+          <h2>{{ readings|length }}</h2>
+          <small>Across all reporting dates</small>
+        </article>
+      </div>
+
+      {% if account['role'] == 'admin' %}
+  <section class="content-panel">
+    <h2>Today's faculty comparison</h2>
+
+    <p class="panel-description">
+      Submitted energy consumption for {{ today }}.
+    </p>
+
+    <div class="comparison-chart" id="comparison-chart" tabindex="0" aria-label="Daily comparison for 19 faculties; scroll to see all faculties">
+
+      {% for department, name in faculties.items() %}
+
+        {% set result = namespace(energy=none) %}
+
+        {% for reading in readings %}
+          {% if
+            reading['department'] == department
+            and reading['reading_date'] == today
+          %}
+            {% set result.energy =
+              reading['energy_hundredths'] / 100
+            %}
+          {% endif %}
+        {% endfor %}
+
+        <div class="comparison-row">
+          <div class="comparison-label">
+            <span>{{ name }}</span>
+
+            <strong>
+              {% if result.energy is not none %}
+                {{ "%.2f"|format(result.energy) }} kWh
+              {% else %}
+                Not submitted
+              {% endif %}
+            </strong>
+          </div>
+
+          <div class="bar-track">
+            <div
+              class="comparison-bar"
+              data-energy="{{ result.energy
+                if result.energy is not none else '' }}"
+            ></div>
+          </div>
+        </div>
+
+      {% endfor %}
+
+    </div>
+
+    <p class="chart-note">
+      Bar lengths compare submitted values.
+      A longer bar does not automatically mean inefficient usage.
+    </p>
+  </section>
+{% endif %}
+
+      <section class="content-panel">
+        <h2 id="consumption-trend">Consumption over the last seven days</h2>
+        <p class="panel-description">
+          {% if account['role'] == 'admin' %}
+            Daily reported totals across the 19 faculties. Orange points and dashed
+            segments indicate incomplete submissions, not a full university total.
+          {% else %}
+            Your faculty's reported daily consumption in kWh.
+          {% endif %}
+        </p>
+        <div class="line-legend">
+  {% if account['role'] == 'admin' %}
+
+    <span>
+      <i class="legend-dot complete"></i>
+      All 19 faculties reported
+    </span>
+
+    <span>
+      <i class="legend-dot partial"></i>
+      Partial reported total
+    </span>
+
+    <span>No submissions appear as gaps</span>
+
+  {% else %}
+
+    <span>
+      <i class="legend-dot complete"></i>
+      Submitted consumption
+    </span>
+
+    <span>No reading submitted: gap</span>
+
+  {% endif %}
+</div>
+        <div class="line-chart-scroll" tabindex="0" aria-label="Seven-day line graph; scroll horizontally on small screens">
+          <svg class="energy-line-chart" viewBox="0 0 900 340" role="img" aria-labelledby="line-title line-description">
+            <title id="line-title">Seven-day reported energy consumption</title>
+            <desc id="line-description">Dates are on the horizontal axis, energy in kilowatt hours on the vertical axis. Missing dates have no point. Exact values and submission counts are available in the table below.</desc>
+            {% for tick in line_chart['ticks'] %}
+              <line x1="95" x2="815" y1="{{ tick['y'] }}" y2="{{ tick['y'] }}" class="chart-grid"/>
+              <text x="82" y="{{ tick['y'] + 4 }}" text-anchor="end">{{ "%.2f"|format(tick['value']) }}</text>
+            {% endfor %}
+            <line x1="95" y1="45" x2="95" y2="260" class="chart-axis"/>
+            <line x1="95" y1="260" x2="815" y2="260" class="chart-axis"/>
+            <text x="22" y="155" transform="rotate(-90 22 155)" text-anchor="middle" class="axis-title">Energy (kWh)</text>
+            <text x="455" y="325" text-anchor="middle" class="axis-title">Date</text>
+            {% for segment in line_chart['segments'] %}
+              <line x1="{{ segment['x1'] }}" y1="{{ segment['y1'] }}"
+                    x2="{{ segment['x2'] }}" y2="{{ segment['y2'] }}"
+                    class="energy-segment {{ 'complete' if segment['complete'] else 'partial' }}"/>
+            {% endfor %}
+            {% for point in line_chart['points'] %}
+              <text x="{{ point['x'] }}" y="286" text-anchor="middle">{{ point['label'] }}</text>
+              <text x="{{ point['x'] }}" y="303" text-anchor="middle" class="coverage-label">{{ point['reported'] }}/{{ expected_today }}</text>
+              {% if point['reported'] > 0 %}
+                <circle cx="{{ point['x'] }}" cy="{{ point['y'] }}" r="6"
+                        class="energy-point {{ 'complete' if point['complete'] else 'partial' }}" tabindex="0"
+                        aria-label="{{ point['date'] }}: {{ '%.2f'|format(point['total']) }} kWh; {{ point['reported'] }} of {{ expected_today }} reported">
+                  <title>{{ point['date'] }}: {{ "%.2f"|format(point['total']) }} kWh · {{ point['reported'] }}/{{ expected_today }} reported</title>
+                </circle>
+              {% endif %}
+            {% endfor %}
+            {% if not line_chart['has_data'] %}
+              <text x="455" y="150" text-anchor="middle">No readings submitted during these seven days.</text>
+            {% endif %}
+          </svg>
+        </div>
+        <p class="chart-note">
+  Hover over or focus a point for its value.
+
+  {% if account['role'] == 'admin' %}
+    Missing faculty readings make the total incomplete.
+    A lower partial total does not prove reduced consumption.
+  {% else %}
+    Dates without a submitted reading appear as gaps,
+    not zero consumption.
+  {% endif %}
+</p>
+        <details class="trend-details">
+          <summary>View exact trend values and reporting coverage</summary>
+          <div class="table-wrapper">
+            <table class="readings-table">
+              <thead><tr><th scope="col">Date</th><th scope="col">Reported consumption</th><th scope="col">Submissions</th></tr></thead>
+              <tbody>{% for day in trend %}<tr>
+                <td>{{ day['date'] }}</td>
+                <td>{% if day['reported'] %}{{ "%.2f"|format(day['total']) }} kWh{% else %}Not submitted{% endif %}</td>
+                <td>{{ day['reported'] }} / {{ expected_today }}</td>
+              </tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+
+<section class="content-panel">
+ <h2 id="consumption-alerts">
+  High-consumption alerts
+</h2>
+
+  <p class="panel-description">
+    Readings from the latest seven days that exceed
+    the faculty's previous seven-reading average by over 30%.
+  </p>
+
+  {% if alerts %}
+
+    {% for alert in alerts %}
+      <article class="consumption-alert">
+
+        <div class="alert-heading">
+          <h3>{{ alert['department'] }}</h3>
+          <span class="alert-status">Review usage</span>
+        </div>
+
+        <p class="alert-date">{{ alert['date'] }}</p>
+
+        <p>
+          <strong>
+            {{ "%.2f"|format(alert['consumption']) }} kWh
+          </strong>
+
+          — {{ "%.1f"|format(alert['increase']) }}%
+          above its baseline.
+        </p>
+
+        <p>
+          Previous seven-reading average:
+          {{ "%.2f"|format(alert['baseline']) }} kWh.
+        </p>
+
+        <small>
+          Check equipment use, operating hours and reading accuracy.
+        </small>
+
+      </article>
+    {% endfor %}
+
+  {% else %}
+
+    <p class="empty-state">
+      No alerts to display. Readings need seven earlier
+      faculty records and a positive average before
+      this check can run.
+    </p>
+
+  {% endif %}
+</section>
+
+{% if account['role'] == 'department' %}
+        <section class="content-panel">
+          <h2>Submit daily consumption</h2>
+
+          <p class="panel-description">
+            Enter energy used during the day, not the cumulative
+            number displayed on the meter.
+          </p>
+
+          <form
+            class="reading-form"
+            method="POST"
+            action="{{ url_for('submit_reading') }}"
+          >
+            <input
+              type="hidden"
+              name="csrf_token"
+              value="{{ csrf_token() }}"
+            >
+
+            <div class="field-group">
+              <label for="reading-date">Consumption date</label>
+
+              <input
+                type="date"
+                id="reading-date"
+                name="reading_date"
+                value="{{ today }}"
+                max="{{ today }}"
+                required
+              >
+            </div>
+
+            <div class="field-group">
+              <label for="energy">Energy consumed in kWh</label>
+
+              <input
+                type="number"
+                id="energy"
+                name="energy"
+                min="0"
+                max="1000000"
+                step="0.01"
+                placeholder="For example, 210"
+                required
+              >
+            </div>
+
+            <button type="submit">Save reading</button>
+          </form>
+        </section>
+      {% endif %}
+
+      <section class="content-panel" id="reading-history">
+        <h2>
+          {% if account['role'] == 'admin' %}
+            Faculty consumption records
+          {% else %}
+            Your consumption history
+          {% endif %}
+        </h2>
+
+        {% if readings %}
+          <div class="table-wrapper">
+            <table class="readings-table">
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Faculty</th>
+                  <th scope="col">Consumption</th>
+                  {% if account['role'] == 'department' %}
+  <th scope="col">Action</th>
+{% endif %}
+                </tr>
+              </thead>
+
+              <tbody>
+                {% for reading in readings %}
+                  <tr>
+                    <td>{{ reading['reading_date'] }}</td>
+
+                    <td>
+                      {{ faculty_name(reading['department']) }}
+                    </td>
+
+                    <td>
+                      {{ "%.2f"|format(
+                        reading['energy_hundredths'] / 100
+                      ) }} kWh
+                    </td>
+
+                    {% if account['role'] == 'department' %}
+  <td>
+    <a
+      class="edit-link"
+      href="{{ url_for(
+        'edit_reading',
+        reading_id=reading['id']
+      ) }}"
+    >
+      Edit
+    </a>
+  </td>
+{% endif %}
+
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="empty-state">
+            No readings have been submitted yet.
+          </p>
+        {% endif %}
+      </section>
+
+    </section>
+  </main>
+
+  <script>
+  const comparisonBars = document.querySelectorAll(
+    ".comparison-bar"
+  );
+
+  const submittedValues = Array.from(comparisonBars)
+    .filter((bar) => bar.dataset.energy !== "")
+    .map((bar) => Number(bar.dataset.energy));
+
+  const highestConsumption = Math.max(
+    0,
+    ...submittedValues
+  );
+
+  comparisonBars.forEach((bar) => {
+    const value = bar.dataset.energy;
+
+    if (value === "") {
+      bar.style.width = "0%";
+      return;
+    }
+
+    const energy = Number(value);
+
+    const percentage = highestConsumption > 0
+      ? (energy / highestConsumption) * 100
+      : 0;
+
+    bar.style.width = `${percentage}%`;
+  });
+</script>
+
+</body>
+</html>
